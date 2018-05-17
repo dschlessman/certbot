@@ -195,7 +195,7 @@ def update_configuration(lineagename, archive_dir, target, cli_config):
     return configobj.ConfigObj(config_filename)
 
 
-def get_link_target(link):
+def get_link_target(link, archive_dir=None):
     """Get an absolute path to the target of link.
 
     :param str link: Path to a symbolic link
@@ -212,9 +212,12 @@ def get_link_target(link):
         raise errors.CertStorageError(
             "Expected {0} to be a symlink".format(link))
 
-    if not os.path.isabs(target):
+    if not os.path.isdir(target):
         target = os.path.join(os.path.dirname(link), target)
-    return os.path.abspath(target)
+
+    if archive_dir:
+        return os.path.relpath(archive_dir, target)
+    return os.path.normpath(target)
 
 
 def _relevant(option):
@@ -493,7 +496,7 @@ class RenewableCert(object):
             if not os.path.islink(link):
                 raise errors.CertStorageError(
                     "expected {0} to be a symlink".format(link))
-            target = os.path.relpath(self.archive_dir,get_link_target(link))
+            target = get_link_target(link, self.archive_dir)
             if not os.path.exists(target):
                 raise errors.CertStorageError("target {0} of symlink {1} does "
                                               "not exist".format(target, link))
@@ -502,7 +505,7 @@ class RenewableCert(object):
         """Updates symlinks to use archive_dir"""
         for kind in ALL_FOUR:
             link = getattr(self, kind)
-            previous_link = get_link_target(link)
+            previous_link = get_link_target(link, self.archive_dir)
             new_link = os.path.join(self.relative_archive_dir(link),
                 os.path.basename(previous_link))
 
@@ -536,7 +539,7 @@ class RenewableCert(object):
 
             # Each element's link must point within the cert lineage's
             # directory within the official archive directory
-            if not os.path.samefile(os.path.dirname(target), self.archive_dir):
+            if not os.path.samefile(os.path.dirname(os.path.abspath(target)), self.archive_dir):
                 logger.debug("Element's link does not point within the "
                              "cert lineage's directory within the "
                              "official archive directory. Link: %s, "
