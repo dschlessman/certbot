@@ -23,6 +23,8 @@ from certbot import util
 from certbot.plugins import common as plugins_common
 from certbot.plugins import disco as plugins_disco
 
+from tempfile import mkdtemp
+
 logger = logging.getLogger(__name__)
 
 ALL_FOUR = ("cert", "privkey", "chain", "fullchain")
@@ -491,7 +493,7 @@ class RenewableCert(object):
             if not os.path.islink(link):
                 raise errors.CertStorageError(
                     "expected {0} to be a symlink".format(link))
-            target = get_link_target(link)
+            target = os.path.relpath(self.archive_dir,get_link_target(link))
             if not os.path.exists(target):
                 raise errors.CertStorageError("target {0} of symlink {1} does "
                                               "not exist".format(target, link))
@@ -802,16 +804,24 @@ class RenewableCert(object):
             raise errors.CertStorageError("unknown kind of item")
         link = getattr(self, kind)
         filename = "{0}{1}.pem".format(kind, version)
-        # Relative rather than absolute target directory
+        # Doesn't alter if the target path is relative or absolute
         target_directory = os.path.dirname(os.readlink(link))
-        # TODO: it could be safer to make the link first under a temporary
-        #       filename, then unlink the old link, then rename the new link
-        #       to the old link; this ensures that this process is able to
-        #       create symlinks.
+        tempdir = mkdtemp()
+        try:
+            temp_link = os.path.join(tempdir, os.path.basename(link))
+            os.symlink(os.path.join(target_directory, filename),
+                       os.path.join(tempdir, os.path.basename(link)))
+            os.unlink(link)
+            os.rename(temp_link, link)
+        except OSError as e:
+            errors.CertStorageError(
+                "You don't have permissions to the target directory or it's invalid {}".format(
+                    target_directory))
+        finally:
+            shutil.rmtree(tempdir, ignore_errors=True)
+
         # TODO: we might also want to check consistency of related links
         #       for the other corresponding items
-        os.unlink(link)
-        os.symlink(os.path.join(target_directory, filename), link)
 
     def update_all_links_to(self, version):
         """Change all member objects to point to the specified version.
